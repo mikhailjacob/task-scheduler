@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schedule - Work Scheduler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/common.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/schedule.css') }}">
+</head>
+<body>
+    <div class="header">
+        <h1>Task Schedule</h1>
+        <div class="header-links">
+            <a href="/">&larr; Home</a>
+            <a href="/editor">Editor</a>
+        </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend">
+        {% for project, color in colors.items() %}
+        <div class="legend-item">
+            <span class="legend-swatch" style="background-color: {{ color }};"></span>
+            {{ project }}
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="gantt-wrapper">
+        <div class="gantt" style="grid-template-columns: 120px repeat({{ total_days }}, minmax(40px, 1fr)); grid-template-rows: auto repeat({{ num_workers }}, 44px);">
+
+            {# Header row: blank corner + day labels #}
+            <div class="day-header"></div>
+            {% if calendar_dates and calendar_dates | length > 0 %}
+                {% for d in calendar_dates %}
+                <div class="day-header">{{ d.strftime('%a') }}<br>{{ d.strftime('%b %d') }}</div>
+                {% endfor %}
+            {% else %}
+                {% for d in range(1, total_days + 1) %}
+                <div class="day-header">Day {{ d }}</div>
+                {% endfor %}
+            {% endif %}
+
+            {# Worker rows #}
+            {% for w in range(num_workers) %}
+                <div class="worker-label">{{ worker_names[w].name }}</div>
+                {% set ns = namespace(col=0) %}
+
+                {# Current Tasks block for availability offset #}
+                {% if worker_names[w].available_in > 0 %}
+                <div class="current-tasks-block" style="grid-column: span {{ worker_names[w].available_in }};">
+                    Current Tasks
+                </div>
+                {% set ns.col = worker_names[w].available_in %}
+                {% endif %}
+
+                {# Scheduled tasks for this worker #}
+                {% for st in schedule.assignments | selectattr("worker", "equalto", w) | sort(attribute="start_day") %}
+                    {% for _ in range(st.start_day - ns.col) %}
+                    <div class="empty-cell"></div>
+                    {% endfor %}
+                    <div class="task-block"
+                         style="grid-column: span {{ st.task.days }}; background-color: {{ colors[st.task.project] }};">
+                        {{ st.task.name }}
+                        <span class="tooltip">
+                            <strong>{{ st.task.name }}</strong><br>
+                            Project: {{ st.task.project }}<br>
+                            Duration: {{ st.task.days }} day{{ "s" if st.task.days != 1 }}<br>
+                            {% if calendar_dates and calendar_dates | length > 0 %}
+                            {{ calendar_dates[st.start_day].strftime('%b %d') }} &ndash; {{ calendar_dates[st.end_day - 1].strftime('%b %d') }}
+                            {% else %}
+                            Days {{ st.start_day + 1 }}&ndash;{{ st.end_day }}
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% set ns.col = st.end_day %}
+                {% endfor %}
+                {% for _ in range(total_days - ns.col) %}
+                <div class="empty-cell"></div>
+                {% endfor %}
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

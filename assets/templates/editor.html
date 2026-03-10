@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Config Editor - Work Scheduler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/common.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/editor.css') }}">
+</head>
+<body>
+    <div class="header">
+        <h1>Configuration Editor</h1>
+        <div class="header-links">
+            <a href="/">&larr; Home</a>
+        </div>
+    </div>
+
+    <!-- Workers -->
+    <div class="panel" id="workers-panel">
+        <h2>Workers</h2>
+        <div id="worker-list"></div>
+        <button class="btn btn-secondary" onclick="addWorker()">+ Add Worker</button>
+    </div>
+
+    <!-- Calendar -->
+    <div class="panel">
+        <h2>Calendar Settings</h2>
+        <div class="row">
+            <div>
+                <label for="start-date">Start Date</label>
+                <input type="date" id="start-date">
+            </div>
+            <div>
+                <label>&nbsp;</label>
+                <label>
+                    <input type="checkbox" id="show-weekends" checked> Show Weekends
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Projects -->
+    <div class="panel">
+        <h2>Projects</h2>
+        <div id="project-list"></div>
+        <button class="btn btn-secondary" id="add-project" onclick="addProject()">+ Add Project</button>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions">
+        <button class="btn btn-primary" onclick="generateSchedule()">Generate Schedule</button>
+        <button class="btn btn-success" onclick="downloadYAML()">Download YAML</button>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/editor.js') }}"></script>
+</body>
+</html>

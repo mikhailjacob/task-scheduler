@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Work Scheduler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/common.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/index.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Work Scheduler</h1>
+        <p>Generate a task schedule from a YAML config file or build one in the editor.</p>
+
+        <div class="option-section">
+            <h2>Upload a Config File</h2>
+            <form action="/upload" method="post" enctype="multipart/form-data">
+                <input type="file" name="file" accept=".yaml,.yml" required>
+                <button type="submit">Generate Schedule</button>
+            </form>
+            <p class="hint">Accepts .yaml or .yml files up to 1 MB</p>
+        </div>
+
+        <div class="divider"><span>or</span></div>
+
+        <div class="option-section">
+            <h2>Build in the Editor</h2>
+            <p>Create a configuration visually — add projects, tasks, workers, and dependencies.</p>
+            <a href="/editor" class="btn-editor">Open Editor</a>
+        </div>
+    </div>
+</body>
+</html>

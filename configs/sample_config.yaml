@@ -1,0 +1,51 @@
+worker_names:
+  - name: "Alice"
+    available_in: 0
+  - name: "Bob"
+    available_in: 3
+  - name: "Charlie"
+
+calendar:
+  start_date: "2026-03-09"
+  show_weekends: false
+
+projects:
+  - name: "Backend API"
+    tasks:
+      - name: "Setup database schema"
+        days: 3
+      - name: "Implement auth endpoints"
+        days: 5
+      - name: "Write API documentation"
+        parallel: true
+        days: 2
+      - name: "Setup CI/CD pipeline"
+        parallel: true
+        days: 2
+
+  - name: "Frontend"
+    tasks:
+      - name: "Design mockups"
+        days: 2
+      - name: "Implement dashboard"
+        days: 4
+        depends_on:
+          - "Backend API/Implement auth endpoints"
+      - name: "Build login page"
+        parallel: true
+        depends_on:
+          - "Backend API/Implement auth endpoints"
+        days: 3
+      - name: "Add responsive styles"
+        days: 2
+
+  - name: "Data Pipeline"
+    tasks:
+      - name: "Design ETL architecture"
+        days: 3
+      - name: "Implement data ingestion"
+        days: 5
+      - name: "Build transformation layer"
+        days: 4
+      - name: "Setup monitoring"
+        days: 2
