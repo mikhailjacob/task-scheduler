@@ -28,8 +28,11 @@ This document tracks the implementation progress of each feature in the Work Sch
 | F12: Graphical Config Editor | Complete | 9 | 9/9 |
 | Reorganization & Refactoring | Complete | — | 77/77 |
 | F13: Dual-Path Landing Page | Complete | 2 | 2/2 |
+| F14: Task Indexing & Transitive Deps | Complete | 16 | 16/16 |
+| F15: Phase Hierarchy | Complete | 12 | 12/12 |
+| F16: Preferred Worker Allocation | Complete | 8 | 8/8 |
 
-**Total: 79 tests, 79 passing**
+**Total: 115 tests, 115 passing**
 
 ---
 
@@ -683,4 +686,98 @@ This allows users to either upload an existing YAML config or construct one visu
 tests/test_web.py::TestIndexRoute::test_index_has_editor_link PASSED
 tests/test_web.py::TestIndexRoute::test_index_has_or_divider PASSED
 2 new tests, 79 total passed
+```
+
+---
+
+## Feature 14: Task Indexing & Transitive Dependencies
+
+### RED Phase
+Tests written in `tests/test_indexing.py` covering:
+- **TestIndexParsing (4):** Index stored on task, sequential indexes create dependency, first index has no deps, task_id format correct.
+- **TestInvalidIndex (2):** Non-alphanumeric index rejected, letter-only index rejected.
+- **TestParallelSiblings (4):** Same-number siblings share predecessor deps, don't depend on each other, successors depend on all siblings, siblings overlap in schedule.
+- **TestTransitiveDependencies (2):** Chain A→B→C: C inherits A transitively, B has direct dep only.
+- **TestTransitiveWithExplicitDeps (1):** Cross-project explicit dep inherits transitive deps.
+- **TestNoImplicitCrossOrdering (2):** Same index in different projects are independent, can schedule in parallel.
+- **TestIndexGaps (1):** Non-consecutive indexes (1→5) produce no implicit dep.
+
+### GREEN Phase — Implementation
+
+**Index format:** `_INDEX_RE = re.compile(r"^(\d+)([A-Za-z]?)$")` validates indexes as number or number+letter (e.g. `1`, `2`, `1A`, `1B`).
+
+**`_parse_indexed_tasks()` in `parser.py`:**
+- Groups tasks by numeric prefix.
+- Index N auto-depends on all tasks at index N-1.
+- Parallel siblings (same number, different letter) share deps but don't depend on each other.
+- Explicit `depends_on` is merged with implicit deps.
+
+**`_transitive_close()` in `parser.py`:**
+- Computes transitive closure in topological order.
+- After closure, each task's `depends_on` includes ALL direct and indirect dependencies.
+- The scheduler benefits from the full dependency set for correct earliest-start computation.
+
+**Format detection:** `_parse_task_list()` checks for any `index` field to distinguish v3 (indexed) from v1/v2 (sequential) task lists, preserving full backward compatibility.
+
+### Test Results
+```
+tests/test_indexing.py — 16 passed
+```
+
+---
+
+## Feature 15: Phase Hierarchy
+
+### RED Phase
+Tests written in `tests/test_phases.py` covering:
+- **TestPhaseParsing (4):** Task ID includes phase, all tasks parsed, intra-phase sequential deps, cross-phase independence.
+- **TestPhaseLevelDependency (2):** Phase dep expands to all tasks in phase, schedule respects phase dep.
+- **TestMixedProjects (2):** Phased and flat projects coexist, flat tasks can depend on phased tasks.
+- **TestPhaseValidation (3):** Empty phase tasks raise, missing phase name raises, invalid phase dep reference raises.
+- **TestCrossProjectPhaseDep (1):** Phase deps can span projects.
+
+### GREEN Phase — Implementation
+
+**Task ID format:** `"Project/Phase/Task"` for phased projects, `"Project/Task"` for flat projects.
+
+**Phase parsing in `ConfigParser.parse()`:**
+- Projects can have `phases` (list of phase dicts with `name` + `tasks`) or flat `tasks`.
+- `phase_tasks` dict maps `"Project/Phase"` → list of task_ids.
+
+**Phase-level dependency resolution:**
+- If `depends_on` contains a key matching a phase_id (e.g. `"App/Research"`), it expands to all task_ids in that phase.
+- Combined with transitive closure, downstream tasks correctly inherit all ancestor dependencies.
+
+### Test Results
+```
+tests/test_phases.py — 12 passed
+```
+
+---
+
+## Feature 16: Preferred Worker Allocation
+
+### RED Phase
+Tests written in `tests/test_preferred.py` covering:
+- **TestPreferredWorkerParsing (2):** preferred_workers stored, empty defaults to empty list.
+- **TestPreferredWorkerScheduling (4):** Preferred chosen when tied, preference doesn't sacrifice start time, fallback when busy, multiple preferred workers.
+- **TestPreferredWithAvailability (2):** Available-later preferred not chosen, same-availability preferred wins.
+
+### GREEN Phase — Implementation
+
+**Model:** `Task.preferred_workers: list[str]` — optional list of worker names.
+
+**Scheduler algorithm in `scheduler.py`:**
+1. For each task, compute `best_start` across all workers.
+2. Collect all workers tied at `best_start`.
+3. If any tied worker is in `task.preferred_workers`, choose the first preferred.
+4. Otherwise, fall back to the first tied worker.
+
+This ensures preferred workers are favoured **only when they don't increase makespan** — the scheduler never delays a task to wait for a preferred worker.
+
+**Editor support (`editor.py`):** `_task_entry()` helper emits `preferred_workers` and `index` fields in YAML output.
+
+### Test Results
+```
+tests/test_preferred.py — 8 passed
 ```

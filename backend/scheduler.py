@@ -2,7 +2,8 @@
 
 Implements a topological-sort-based scheduler (Kahn's algorithm)
 with Longest Processing Time (LPT) tiebreaking.  Respects task
-dependencies and per-worker availability offsets.
+dependencies, per-worker availability offsets, and preferred worker
+assignments.
 
 Complexity: O(n log n + n*k) where n = tasks, k = workers.
 """
@@ -18,6 +19,8 @@ class TaskScheduler:
     """Assigns tasks to workers respecting dependencies and availability.
 
     Uses topological sort (Kahn's algorithm) with LPT tiebreaking.
+    Preferred workers are favoured when they can start at the same
+    time as the overall best worker.
     """
 
     @staticmethod
@@ -29,7 +32,9 @@ class TaskScheduler:
             2. For each task, find the earliest start time per worker =
                max(worker_current_end, all dependency end times,
                worker availability offset).
-            3. Assign the task to the worker that yields the earliest finish.
+            3. Among workers tied for earliest start, prefer those in
+               the task's preferred_workers list.
+            4. Assign the task to the chosen worker.
         """
         tasks = config.tasks
         n_workers = config.workers
@@ -37,6 +42,10 @@ class TaskScheduler:
             WorkerInfo(name=f"Worker {i+1}", available_in=0)
             for i in range(n_workers)
         ]
+
+        worker_name_to_idx: dict[str, int] = {
+            w.name: i for i, w in enumerate(worker_infos)
+        }
 
         # Build adjacency and in-degree for topological sort
         task_map = {t.task_id: t for t in tasks}
@@ -79,14 +88,28 @@ class TaskScheduler:
                 (scheduled_end[d] for d in task.depends_on), default=0
             )
 
-            # Pick worker whose max(current_end, dep_end) is minimised
-            best_worker = -1
+            # Compute candidate start for each worker
             best_start = float("inf")
             for w in range(n_workers):
                 candidate_start = max(worker_end[w], dep_end)
                 if candidate_start < best_start:
                     best_start = candidate_start
-                    best_worker = w
+
+            # Collect all workers tied at best_start
+            tied: list[int] = []
+            for w in range(n_workers):
+                if max(worker_end[w], dep_end) == best_start:
+                    tied.append(w)
+
+            # Prefer a preferred worker among the tied set
+            preferred_idxs = {
+                worker_name_to_idx[name]
+                for name in task.preferred_workers
+                if name in worker_name_to_idx
+            }
+            preferred_tied = [w for w in tied if w in preferred_idxs]
+
+            best_worker = (preferred_tied or tied)[0]
 
             start = int(best_start)
             end = start + task.days

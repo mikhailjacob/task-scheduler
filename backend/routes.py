@@ -142,6 +142,10 @@ def editor_download():
     data = request.get_json(silent=True)
     if not data or not data.get("projects"):
         return "Invalid or empty configuration", 400
+    try:
+        EditorService.json_to_config(data)
+    except (ValueError, yaml.YAMLError) as exc:
+        return f"Invalid configuration: {escape(str(exc))}", 400
     yaml_str = EditorService.json_to_yaml_string(data)
     return Response(
         yaml_str,

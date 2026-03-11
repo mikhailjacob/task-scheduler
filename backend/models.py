@@ -22,16 +22,24 @@ class Task:
         name: Human-readable task name.
         days: Duration of the task in working days (must be >= 1).
         project: Name of the parent project this task belongs to.
-        task_id: Unique identifier in ``"Project/Task"`` format.
-            Used as the key in the dependency graph.
+        task_id: Unique identifier in ``"Project/Task"`` or
+            ``"Project/Phase/Task"`` format.
         depends_on: List of ``task_id`` strings that must complete
             before this task can start.
+        index: Alphanumeric index (e.g. ``"1"``, ``"2"``, ``"1A"``).
+            Tasks sharing the same numeric prefix but different letter
+            suffixes are parallel siblings.
+        preferred_workers: Worker names that prefer this task. The
+            scheduler will try to assign the task to a preferred
+            worker when possible.
     """
     name: str
     days: int
     project: str
     task_id: str = ""
     depends_on: list[str] = field(default_factory=list)
+    index: str = ""
+    preferred_workers: list[str] = field(default_factory=list)
 
 
 @dataclass

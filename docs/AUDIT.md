@@ -1,7 +1,8 @@
 # Work Scheduler — Project Audit
 
-**Date:** March 9, 2026
+**Date:** March 10, 2026
 **Scope:** Full audit of design, code, frontend, tests, documentation, and security.
+**Revision:** 2 — updated after F14 (Task Indexing), F15 (Phase Hierarchy), F16 (Preferred Workers).
 
 ---
 
@@ -42,7 +43,7 @@ enabling testability and configuration flexibility.
 | `scheduler.py`| Scheduling algorithm            | models   | Clean   |
 | `colors.py`   | Color assignment                | None     | Clean   |
 | `calendar.py` | Date computation                | models   | Clean   |
-| `editor.py`   | JSON ↔ YAML conversion          | parser   | Clean   |
+| `editor.py`   | JSON → YAML conversion          | parser   | Clean   |
 | `routes.py`   | HTTP handlers (thin controller) | All      | Expected|
 
 Each module depends only downward on `models` and/or `parser`. The route
@@ -56,9 +57,9 @@ YAML string / Editor JSON
     ↓
 ConfigParser.parse() / EditorService.json_to_config()
     ↓
-Config (validated)
+Config (validated) — with transitive dependency closure
     ↓
-TaskScheduler.schedule()
+TaskScheduler.schedule()  — preferred worker selection
     ↓
 Schedule
     ↓
@@ -79,6 +80,7 @@ contract defined by the dataclasses.
 | Convenience aliases | Good | `parse_config = ConfigParser.parse` keeps client code clean |
 | `__all__` export list | Good | Explicit public API in `__init__.py` |
 | No circular imports | Good | Import graph is acyclic |
+| v1/v2/v3 format compat | Good | Parser auto-detects format; older configs continue to work |
 
 ---
 
@@ -98,11 +100,14 @@ contract defined by the dataclasses.
 **Parser** (`parser.py`):
 - YAML is loaded with `yaml.safe_load()` — prevents arbitrary code execution.
 - All required fields are validated with specific error messages.
-- Dependency references are validated against known task IDs.
+- v3 index format validated with compiled regex `_INDEX_RE`.
+- Dependency references are validated against known task IDs and phase IDs.
+- Phase-level dependencies correctly expanded before validation.
 - Circular dependency detection uses Kahn's algorithm (BFS topological sort) —
   correct: if `visited != len(tasks)`, a cycle exists.
-- Sequential-by-default / parallel opt-in dependency logic is implemented
-  correctly with `prev_task_id` and `prev_deps` tracking.
+- v1/v2 sequential-by-default / parallel opt-in logic preserved for backward compat.
+- v3 indexed tasks: same-number parallel siblings, N depends on N-1, correct.
+- Transitive closure computed via topological propagation — correct.
 
 **Scheduler** (`scheduler.py`):
 - Kahn's algorithm for topological sort is implemented correctly.
@@ -110,6 +115,7 @@ contract defined by the dataclasses.
   negated durations) is correct.
 - Worker selection considers `max(worker_end, dep_end)` for each worker —
   correct for minimizing worker start time.
+- Preferred worker selection only among tied workers — does not sacrifice makespan.
 - Edge cases handled: zero tasks (returns `total_days=0`), single task/worker.
 
 **Calendar** (`calendar.py`):
@@ -121,9 +127,11 @@ contract defined by the dataclasses.
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Duplicate task IDs | Minor gap | If two tasks in the same project share a name, the task_id will collide silently. The parser does not enforce unique task names within a project. Low risk for typical usage. |
-| Worker selection is O(k) per task | Acceptable | A heap-based worker tracker was used in the original LPT scheduler but the current implementation iterates all workers linearly. For typical project sizes (< 100 workers), this is fine. |
+| Duplicate task IDs | Minor gap | If two tasks in the same project/phase share a name, the task_id will collide silently. The parser does not enforce unique task names within a project/phase. Low risk for typical usage. |
+| Duplicate task names across phases | Note | WS Phases 4A/4B/4C each have identically-named tasks ("ML 2D invisible prototype"). This works because task IDs include the phase name, but users could find it confusing in the Gantt chart. |
+| Worker selection is O(k) per task | Acceptable | The scheduler iterates all workers for each task. For typical project sizes (< 100 workers), this is fine. |
 | EditorService round-trip | By design | `json_to_config` serializes to YAML then parses it back. Slightly redundant but ensures the editor path uses the same validation as file upload. |
+| `preferred_workers` not validated against worker names | Minor gap | The parser does not check that `preferred_workers` entries match actual worker names. Invalid names are silently ignored by the scheduler. |
 
 ---
 
@@ -147,7 +155,7 @@ contract defined by the dataclasses.
 - No vendor prefixes needed — the targeted features (CSS Grid, flexbox) have
   excellent browser support.
 
-### 3.3 JavaScript (`editor.js`) — PASS
+### 3.3 JavaScript (`editor.js`) — PARTIAL PASS
 
 - Pure vanilla JS with no framework dependencies — appropriate for the project scope.
 - State management is simple and clear: `workers` and `projects` arrays.
@@ -156,6 +164,12 @@ contract defined by the dataclasses.
 - `fetch` calls include proper error handling with `.catch()`.
 - JSDoc comments on all public functions.
 
+**Issue: Editor JS is out of date with v3 backend.**
+The editor JS still uses `parallel: true` in its state model and `buildPayload()`.
+It does not support the v3 fields: `index`, `phases`, or `preferred_workers`.
+This is a feature gap, not a security issue — the backend still supports v2
+format via backward compatibility.
+
 ### 3.4 Observations
 
 | Item | Status | Notes |
@@ -163,6 +177,7 @@ contract defined by the dataclasses.
 | Inline `onclick` handlers | Acceptable | For a small project with no build step, inline handlers are pragmatic. A larger project should use `addEventListener`. |
 | No form validation in editor | Minor gap | The editor does not validate that task names are non-empty or days > 0 on the client side before submission. The backend validates, so this is a UX issue, not a security issue. |
 | `document.write()` in generateSchedule | Acceptable | Replaces the entire page with the server response. Works but less elegant than SPA-style DOM updates. Appropriate for this scope. |
+| Editor doesn't support v3 features | Feature gap | Editor still generates v2-style payloads (no index, phases, preferred_workers). The backend accepts these fine via backward compat. |
 
 ---
 
@@ -181,25 +196,30 @@ contract defined by the dataclasses.
 | `test_dependencies.py`| Dep parsing (F8)      | 11    | Good    |
 | `test_workers.py`     | Named workers (F10)   | 6     | Good    |
 | `test_editor.py`      | Editor routes (F12)   | 9     | Good    |
-| **Total**             |                       | **79**| **All passing** |
+| `test_indexing.py`    | Task indexing (F14)   | 16    | Good    |
+| `test_phases.py`      | Phase hierarchy (F15) | 12    | Good    |
+| `test_preferred.py`   | Preferred workers (F16) | 8   | Good    |
+| **Total**             |                       | **115**| **All passing** |
 
 ### 4.2 Test Quality — GOOD
 
 - Tests use descriptive names and docstrings explaining what is tested.
 - Fixtures properly create isolated Flask test clients.
 - Negative tests cover error conditions (missing fields, invalid values,
-  circular dependencies).
+  circular dependencies, invalid indexes, empty phases).
 - Edge cases tested: single task/worker, zero days, weekend starts, diamond
-  dependency patterns.
+  dependency patterns, index gaps, cross-project phase deps, preferred worker
+  with availability offsets.
 
 ### 4.3 Gaps & Recommendations
 
 | Gap | Risk | Recommendation |
 |-----|------|----------------|
 | No test for oversized file upload (413) | Low | Flask's `MAX_CONTENT_LENGTH` handles this automatically. A test would confirm the behavior. |
-| No test for duplicate task names in same project | Low | Add a test verifying behavior when two tasks share a name. |
+| No test for duplicate task names in same project/phase | Low | Add a test verifying behavior when two tasks share a name (task_id collision). |
 | No integration test for editor → schedule round-trip | Low | The editor submit test covers this partially. A fuller test could verify specific task positions in the rendered chart. |
 | No test for malformed JSON to editor endpoints | Low | `get_json(silent=True)` returns `None` which triggers the 400 check. A test would confirm. |
+| No test for invalid `preferred_workers` names | Low | Non-existent worker names in `preferred_workers` are silently ignored. A test documenting this behavior would be useful. |
 | No CSS/JS tests | Acceptable | Given the pure server-side rendering approach, template content tests cover the HTML output adequately. |
 
 ---
@@ -210,33 +230,137 @@ contract defined by the dataclasses.
 
 | Risk | Status | Details |
 |------|--------|---------|
-| **Injection (A03)** | Mitigated | `yaml.safe_load()` prevents YAML deserialization attacks. Jinja2 auto-escaping prevents XSS. Error messages are escaped with `markupsafe.escape()`. Editor JS uses `textContent` encoding for DOM insertion. |
 | **Broken Access Control (A01)** | N/A | No authentication or authorization system. The app is designed for local single-user use. |
 | **Cryptographic Failures (A02)** | N/A | No secrets, passwords, or encryption involved. |
+| **Injection (A03)** | Mitigated | See detailed analysis in §5.2. |
 | **Insecure Design (A04)** | Mitigated | File uploads are processed in-memory only (never written to disk). `MAX_CONTENT_LENGTH` limits upload size to 1 MB. |
-| **Security Misconfiguration (A05)** | Note | `debug=True` in `run.py` — acceptable for local development but should be disabled if deployed to a network. |
+| **Security Misconfiguration (A05)** | **W1** | `debug=True` in `run.py` — exposes the Werkzeug interactive debugger which allows arbitrary code execution if the app is reachable on a network. See §5.3. |
 | **Vulnerable Components (A06)** | Low risk | Minimal dependency footprint (Flask, PyYAML). Both are mature, actively maintained libraries. |
 | **Authentication Failures (A07)** | N/A | No authentication system. |
 | **Data Integrity Failures (A08)** | Mitigated | YAML parsing is validated thoroughly. Editor JSON round-trips through the same validation. |
 | **Logging Failures (A09)** | Acceptable | Flask's built-in request logging covers development needs. Production deployment would benefit from structured logging. |
 | **SSRF (A10)** | N/A | No outbound HTTP requests made by the server. |
 
-### 5.2 Input Validation Summary
+### 5.2 Injection Analysis — PASS
+
+**YAML Deserialization:**
+- `yaml.safe_load()` is used exclusively — prevents arbitrary Python object
+  construction via YAML tags (`!!python/object`, etc.). This is the correct
+  defense against YAML deserialization attacks (CWE-502).
+
+**Cross-Site Scripting (XSS) — Server-Side:**
+- Jinja2 auto-escaping is enabled by default for `.html` templates. All
+  user-controlled values (`{{ st.task.name }}`, `{{ st.task.project }}`,
+  `{{ project }}`, `{{ worker_names[w].name }}`) are auto-escaped.
+- Error messages use `markupsafe.escape()` before interpolation into
+  response strings (`f"Invalid configuration: {escape(str(exc))}"`) in
+  both the `/upload` and `/editor/submit` routes.) — correct.
+- **Inline style attributes** in `schedule.html` use `{{ color }}` and
+  `{{ st.task.days }}` in `style=""` attributes. The `color` values come
+  from `ColorAssigner` (hardcoded hex and computed HSL strings, never from
+  user input), and `days`/column numbers are integers — no injection vector.
+
+**Cross-Site Scripting (XSS) — Client-Side:**
+- Editor JS uses `esc()` function which encodes via `textContent` → `innerHTML`
+  on a disposable `<div>`. This correctly escapes `<`, `>`, `&`, `"` etc.
+- The `esc()` function is applied to all user-provided values rendered into
+  the DOM: worker names, project names, task names, dependency tags, and
+  `<option>` values.
+
+**SQL Injection:**
+- N/A — no database involved.
+
+**Command Injection:**
+- N/A — no `os.system()`, `subprocess`, or `eval()` calls anywhere.
+
+### 5.3 Specific Findings
+
+#### W1: `debug=True` Hardcoded in `run.py` — MEDIUM
+
+**File:** `run.py`, line 14
+**Risk:** The Werkzeug debugger allows interactive Python execution in the
+browser if an exception occurs. If the dev server is bound to `0.0.0.0` or
+exposed through port forwarding, any network-reachable user can execute
+arbitrary code on the host machine. Even on `localhost`, other local
+processes or browser exploits could abuse it.
+
+**Current state:** The server binds to `localhost:5000` (Flask default), so
+the risk is limited to local access. However, the debug mode also disables
+some response caching and adds overhead.
+
+**Recommendation:** Use an environment variable:
+```python
+app.run(debug=os.getenv("FLASK_DEBUG", "0") == "1", port=5000)
+```
+
+#### W2: No `workers` Upper Bound — LOW
+
+**File:** `parser.py`, worker parsing section
+**Risk:** A YAML config with `workers: 999999` would cause the scheduler to
+allocate a list of 999,999 entries and iterate over them for every task.
+Combined with a large task count, this could cause excessive memory use or
+a hang.
+
+**Current state:** The `MAX_CONTENT_LENGTH` of 1 MB limits the YAML payload
+size, which practically caps the worker count (a 1 MB YAML can only describe
+so many named workers). The risk of abuse is low.
+
+**Recommendation:** Add an upper-bound check (e.g., `workers <= 1000`) in
+the parser.
+
+#### W3: No Task Count Upper Bound — LOW
+
+**File:** `parser.py`, task parsing
+**Risk:** The transitive closure computation (`_transitive_close`) has
+O(n × d) complexity where d is the average dependency count per task.
+For a pathological config with thousands of tasks in a deep chain, the
+transitive closure could produce very large dependency lists and consume
+significant memory.
+
+**Current state:** Again limited by the 1 MB upload cap. A 1 MB YAML
+file can describe at most a few thousand tasks, which is manageable.
+
+**Recommendation:** Add a task count limit (e.g., 10,000) or a total
+dependency-edge limit as a safeguard.
+
+#### M1: Editor Downloads YAML Without Validation — LOW
+
+**File:** `routes.py`, `/editor/download` endpoint
+**Risk:** The `/editor/download` route calls `EditorService.json_to_yaml_string()`
+which converts editor JSON to YAML without running it through `parse_config`.
+This means a user can download a YAML file that may not pass validation
+(e.g., missing days, empty project names).
+
+**Current state:** This is a UX issue, not a security issue. The downloaded
+file will simply fail when uploaded later. The endpoint checks for
+`data.get("projects")` presence but does no deeper validation.
+
+**Recommendation:** Either validate before download (call `json_to_config`
+first) or accept the trade-off for download flexibility.
+
+### 5.4 Input Validation Summary
 
 | Input | Validation |
 |-------|-----------|
-| YAML file upload | Extension check, size limit, `safe_load`, schema validation |
-| Editor JSON | `get_json(silent=True)` + `projects` presence check + full `parse_config` validation |
+| YAML file upload | Extension allowlist, 1 MB size limit, `safe_load`, full schema validation, circular dep detection |
+| Editor JSON (submit) | `get_json(silent=True)` + `projects` presence check + full `parse_config` validation via round-trip |
+| Editor JSON (download) | `get_json(silent=True)` + `projects` presence check only — no schema validation |
 | File name | `os.path.splitext` + allowlist check; name is never used for file I/O |
+| Task index format | Regex validation (`^(\d+)([A-Za-z]?)$`) |
+| Dependency references | Validated against known task IDs and phase IDs |
+| `preferred_workers` | Not validated against known worker names (silently ignored if unknown) |
 
-### 5.3 Security Recommendations
+### 5.5 Security Recommendations
 
 | Item | Priority | Action |
 |------|----------|--------|
-| `debug=True` in production | Medium | Add an environment variable check: `app.run(debug=os.getenv("FLASK_DEBUG", "0") == "1")` |
+| `debug=True` in production (W1) | Medium | Use `os.getenv("FLASK_DEBUG", "0") == "1"` |
+| Worker count upper bound (W2) | Low | Add `workers <= 1000` check in parser |
+| Task count upper bound (W3) | Low | Add task count limit or document expected input bounds |
 | CSRF protection | Low | The app has no authentication so CSRF risk is minimal. If auth were added, Flask-WTF's CSRF tokens should be used for all POST forms. |
-| Content-Security-Policy | Low | Adding a CSP header would prevent inline script injection. Currently not needed since there are no inline scripts (editor.js is external). The `style` attributes on task blocks use Jinja2 auto-escaping. |
+| Content-Security-Policy | Low | Adding a CSP header would harden against inline script injection. Currently not needed since there are no inline scripts (editor.js is external). The `style` attributes on task blocks use Jinja2 auto-escaping. |
 | Rate limiting | Low | No rate limiting on upload or editor submit endpoints. Not needed for local use; add Flask-Limiter if deploying to a network. |
+| Validate download before serving (M1) | Low | Run `json_to_config` in `/editor/download` to catch invalid configs early |
 
 ---
 
@@ -246,17 +370,27 @@ contract defined by the dataclasses.
 
 - **Time complexity:** O(n log n) for the topological sort + O(n·k) for worker
   assignment where n = tasks, k = workers.
-- **Space complexity:** O(n + k).
+- **Space complexity:** O(n + k) base, plus O(n²) worst-case for transitive
+  closure dependency lists (deep chain of n tasks).
 - For typical use cases (tens to low hundreds of tasks, single-digit workers),
   this is negligible.
 
-### 6.2 Template Rendering
+### 6.2 Transitive Closure
+
+- The `_transitive_close()` function propagates dependency sets through the
+  topological order. Worst case: a chain of n tasks produces dependency lists
+  of sizes 0, 1, 2, ..., n-1, totaling O(n²) set entries.
+- For the current `work_planning.yaml` (39 tasks), this is trivially fast.
+- For very large configs (1000+ tasks), memory usage could be notable but
+  is bounded by the 1 MB upload limit.
+
+### 6.3 Template Rendering
 
 - The Gantt chart is rendered entirely server-side with Jinja2. For very large
   schedules (1000+ days, hundreds of tasks), the HTML output could become very
   large. This is acceptable for the project's intended use case.
 
-### 6.3 Static Assets
+### 6.4 Static Assets
 
 - CSS and JS files are small (< 10 KB each). No bundling or minification is
   needed at this scale.
@@ -273,11 +407,11 @@ contract defined by the dataclasses.
 |------|:---:|:---:|:---:|---------|
 | `__init__.py` | Yes | — | Yes | Good |
 | `models.py` | Yes | Yes (all 6) | — (dataclasses) | Good |
-| `parser.py` | Yes | Yes | Yes | Good |
+| `parser.py` | Yes | Yes | Yes (all methods) | Good |
 | `scheduler.py` | Yes | Yes | Yes | Good |
 | `colors.py` | Yes | Yes | Yes | Good |
 | `calendar.py` | Yes | — | Yes | Good |
-| `editor.py` | Yes | Yes | Yes | Good |
+| `editor.py` | Yes | Yes | Yes (all 3 methods) | Good |
 | `routes.py` | Yes | — | Yes (all 5) | Good |
 | `run.py` | Yes | — | — | Good |
 | `editor.js` | Yes | — | Yes (all) | Good |
@@ -287,15 +421,19 @@ contract defined by the dataclasses.
 | Document | Status | Notes |
 |----------|--------|-------|
 | `README.md` | Complete | Setup, usage, config format, project structure, routes, future features |
-| `DESIGN.md` | Complete | Architecture, tech stack, all 13 features, config format, directory structure |
-| `PROGRESS.md` | Complete | TDD log for all 13 features + reorganization with test results |
-| `AUDIT.md` | This document | Full project audit |
+| `DESIGN.md` | Complete | Architecture, tech stack, all 16 features, v3 config format, directory structure |
+| `PROGRESS.md` | Complete | TDD log for all 16 features + reorganization with test results |
+| `AUDIT.md` | This document | Full project audit (revision 2) |
 
 ### 7.3 Documentation Accuracy
 
 All file references in DESIGN.md and PROGRESS.md have been verified to match
-the current codebase structure (using `backend/` module paths, not the old
-monolithic `work_scheduler.py` references).
+the current codebase structure (using `backend/` module paths).
+
+**Note:** The `editor.js` JSDoc still documents the v2 state model
+(`parallel: boolean`) and does not mention v3 fields (`index`, `phases`,
+`preferred_workers`). This is consistent with the editor not yet supporting
+v3 features (see §3.3).
 
 ---
 
@@ -326,28 +464,64 @@ None.
 
 | # | Area | Finding | Severity |
 |---|------|---------|----------|
-| W1 | Security | `debug=True` hardcoded in `run.py` | Medium |
+| W1 | Security | `debug=True` hardcoded in `run.py` — exposes Werkzeug debugger | Medium |
+| W2 | Validation | No upper bound on worker count — pathological inputs could cause high memory use | Low |
+| W3 | Validation | No upper bound on task count — transitive closure is O(n²) worst case | Low |
 
 ### Minor Observations
 
 | # | Area | Finding | Severity |
 |---|------|---------|----------|
-| M1 | Validation | Duplicate task names within a project are not detected | Low |
-| M2 | UX | Editor has no client-side validation before backend submission | Low |
-| M3 | Testing | No test for oversized file upload (413 response) | Low |
-| M4 | Testing | No test for malformed JSON to editor endpoints | Low |
-| M5 | Deployment | No production-ready configuration (WSGI server, CSP headers) | Low |
+| M1 | Validation | `/editor/download` serves YAML without running `parse_config` validation | Low |
+| M2 | Validation | Duplicate task names within a project/phase are not detected (task_id collision) | Low |
+| M3 | Validation | `preferred_workers` entries not validated against known worker names | Low |
+| M4 | UX | Editor has no client-side validation before backend submission | Low |
+| M5 | Feature | Editor JS does not support v3 features (index, phases, preferred_workers) | Low |
+| M6 | Deployment | No production-ready configuration (WSGI server, CSP headers) | Low |
 
 ### Strengths
 
 - Clean separation of concerns with single-purpose modules.
-- Thorough TDD approach with 79 tests covering all features.
-- Secure input handling: `safe_load`, auto-escaping, in-memory file processing.
+- Thorough TDD approach with 115 tests covering all 16 features.
+- Secure input handling: `safe_load`, Jinja2 auto-escaping, `markupsafe.escape()`,
+  `esc()` DOM encoding, in-memory file processing.
 - Minimal dependency footprint with mature, well-maintained libraries.
 - Comprehensive documentation: README, design doc, progress log, and this audit.
-- Backward-compatible configuration format (v1 and v2 both supported).
+- Backward-compatible configuration format (v1, v2, and v3 all supported).
 - No framework or build-tool dependencies on the frontend.
+- Transitive dependency closure ensures correct scheduling even with complex
+  dep chains.
+- Preferred worker allocation never sacrifices makespan — sound algorithm design.
 
 ---
 
-*End of audit.*
+## Fix Plan
+
+### Priority 1 — W1: `debug=True` (Medium)
+**File:** `run.py`
+**Change:** Replace `app.run(debug=True, port=5000)` with:
+```python
+import os
+app.run(debug=os.getenv("FLASK_DEBUG", "0") == "1", port=5000)
+```
+Impact: Debugger is off by default. Set `FLASK_DEBUG=1` env var for dev mode.
+
+### Priority 2 — W2 + W3: Input Bounds (Low)
+**File:** `parser.py`
+**Change:** Add upper-bound checks after worker/task parsing:
+- `if workers_count > 1000: raise ValueError("Worker count exceeds maximum (1000)")`
+- After collecting all tasks: `if len(tasks) > 10000: raise ValueError("Task count exceeds maximum (10,000)")`
+
+### Priority 3 — M1: Validate Editor Download (Low)
+**File:** `routes.py`, `/editor/download`
+**Change:** Call `EditorService.json_to_config(data)` before generating YAML,
+so invalid configs are rejected with a 400 rather than silently downloaded.
+
+### Priority 4 — M3: Validate Preferred Workers (Low)
+**File:** `parser.py`, after all tasks/workers are parsed
+**Change:** Check that every `preferred_workers` entry matches a known worker
+name, and raise `ValueError` if not.
+
+---
+
+*Awaiting feedback before implementing fixes.*

@@ -68,77 +68,108 @@ projects:
         days: 4
 ```
 
-## YAML Configuration Format (v2 — with dependencies, named workers, calendar)
+## YAML Configuration Format (v3 — indexed tasks, phases, preferred workers)
 
 Design principles:
-- **Sequential by default:** Tasks listed consecutively within a project are
-  assumed to depend on their predecessor (i.e. sequential). This minimises
-  config verbosity — most real projects have a natural ordering.
-- **Opt-in parallelism:** Add `parallel: true` on a task to indicate it can
-  run in parallel with the previous task in the same project (it shares the
-  same dependency set as its predecessor rather than depending on it).
-- **Cross-project dependencies:** Use `depends_on: ["Project/Task"]` to add
-  an explicit dependency on a task from any project.
-- **All new fields are optional** — old configs remain valid.
+- **Indexed tasks:** Each task has an `index` field (e.g. `1`, `2`, `"1A"`,
+  `"1B"`). Tasks sharing the same numeric prefix but different letter suffixes
+  are parallel (e.g. `1A` and `1B` can run concurrently).
+- **No implicit ordering:** A later index does NOT automatically depend on
+  an earlier index. Dependencies are stated explicitly or inferred from phase
+  membership.
+- **Phases:** Projects contain phases, and phases contain tasks. This gives a
+  three-level hierarchy: `Project / Phase / Task`. Phases are optional — a
+  project can still contain flat tasks for backward compatibility.
+- **Phase-level dependencies:** `depends_on` can reference a phase
+  (`"Project/Phase"`) — the task then depends on every task in that phase (and
+  transitively on all of their dependencies).
+- **Transitive dependency inheritance:** If task C depends on B, and B depends
+  on A, then C inherits A as a dependency automatically even if not listed
+  explicitly.
+- **Preferred workers:** Tasks may list `preferred_workers` — worker names that
+  prefer to work on the task. The scheduler balances preferred allocations
+  against total schedule length.
+- **`parallel: true` removed** — parallelism is expressed via index letters.
 
 ```yaml
-# Optional: provide worker names and availability offsets
-# If omitted, falls back to "workers: N" anonymous workers.
 worker_names:
   - name: "Alice"
-    available_in: 0      # available immediately (default)
   - name: "Bob"
-    available_in: 5      # busy for 5 days with current tasks
-  - name: "Charlie"      # available_in defaults to 0
+  - name: "Charlie"
 
-# Legacy anonymous form still supported:
-# workers: 3
-
-# Optional calendar settings
 calendar:
-  start_date: "2026-03-09"   # defaults to today
-  show_weekends: false        # false = weekdays only (default: true)
+  start_date: "2026-03-09"
+  show_weekends: false
 
 projects:
-  - name: "Backend API"
-    tasks:
-      # These are sequential by default:
-      - name: "Setup database schema"
-        days: 3
-      - name: "Implement auth endpoints"   # implicitly depends on "Setup database schema"
-        days: 5
-      - name: "Write API documentation"
-        parallel: true                      # can run in parallel with "Implement auth endpoints"
-        days: 2
+  - name: "Assisted Artistry Platform"
+    phases:
+      - name: "Phase 1A: Productionize Sera App"
+        tasks:
+          - index: 1
+            name: "Analyze code and research improvements"
+            days: 1
+            preferred_workers: ["Alice"]
+          - index: 2
+            name: "Implement core features in new repo"
+            days: 3
+          - index: 3
+            name: "Deploy to Azure Apps"
+            days: 2
 
-  - name: "Frontend"
+      - name: "Phase 1B: Barebones Platform"
+        tasks:
+          - index: 1
+            name: "Script Azure resource deployment"
+            days: 1
+            depends_on:
+              - "Assisted Artistry Platform/Phase 1A: Productionize Sera App"
+          - index: 2
+            name: "Static Web App with AAD auth"
+            days: 4
+
+  - name: "Simple Project"
     tasks:
-      - name: "Design mockups"
+      - index: "1A"             # parallel with 1B
+        name: "Research"
         days: 2
-      - name: "Implement dashboard"        # depends on "Design mockups"
+      - index: "1B"             # parallel with 1A
+        name: "Prototype"
+        days: 3
+      - index: 2
+        name: "Integration"
         days: 4
         depends_on:
-          - "Backend API/Implement auth endpoints"   # also waits on backend
-      - name: "Build login page"
-        parallel: true                      # parallel with dashboard
-        depends_on:
-          - "Backend API/Implement auth endpoints"
-        days: 3
+          - "Simple Project/Research"
+          - "Simple Project/Prototype"
 ```
 
-### Dependency Resolution Rules
+### Task ID Format
 
-1. **Intra-project sequential (default):** Task N depends on Task N-1 within
-   the same project, unless Task N has `parallel: true`.
-2. **Intra-project parallel:** If `parallel: true`, the task inherits the same
-   dependencies as its immediate predecessor (i.e. it has no dependency *on*
-   the predecessor, but shares the predecessor's parent).
-3. **Cross-project explicit:** `depends_on` lists references in the format
-   `"ProjectName/TaskName"`. These are *additive* — they combine with implicit
-   intra-project dependencies.
-4. **Scheduling constraint:** A task's earliest start =
-   `max(all dependency end times, worker availability offset)`.
+Task IDs follow the hierarchy:
+- With phases: `"Project/Phase/Task"`
+- Without phases: `"Project/Task"`
 
+Dependencies can reference:
+- A specific task: `"Project/Phase/Task"` or `"Project/Task"`
+- An entire phase: `"Project/Phase"` (depends on ALL tasks in that phase)
+
+### Dependency Resolution Rules (v3)
+
+1. **Index-based parallelism:** Tasks with the same numeric index prefix but
+   different letter suffixes (e.g. `1A`, `1B`) are parallel — neither depends
+   on the other.
+2. **Sequential by index (within a phase/project):** Tasks are ordered by their
+   numeric index. A task at index N depends on all tasks at index N-1 (unless
+   they share the same number, meaning they are parallel siblings).
+3. **Transitive closure:** All dependencies are transitively closed — if A→B→C,
+   then A is an implicit dependency of C.
+4. **Phase-level deps:** `depends_on: ["Project/Phase"]` means the task depends
+   on every task in that phase.
+5. **Cross-project/phase explicit deps:** `depends_on` references still work
+   the same way, with the full path.
+6. **Preferred workers:** The scheduler tries to assign tasks to preferred
+   workers when doing so does not significantly increase the makespan.
 
 ## Features
 
@@ -354,6 +385,95 @@ directly or download the YAML file.
 - Can set calendar options
 - "Generate Schedule" submits and shows the Gantt chart
 - "Download YAML" returns a `.yaml` file download
+
+### Feature 14: Task Indexing & Transitive Dependencies
+**Description:** Replace the `parallel: true` mechanism with an index-based
+system. Each task has a numeric or alphanumeric index. Tasks sharing the same
+numeric prefix but different letter suffixes are parallel. Dependencies are
+transitively inherited — if C depends on B and B depends on A, C automatically
+depends on A.
+
+**Data Model Changes:**
+```python
+@dataclass
+class Task:
+    name: str
+    days: int
+    project: str
+    task_id: str
+    depends_on: list[str]
+    index: str                        # e.g. "1", "2", "1A", "1B"
+    preferred_workers: list[str]      # worker names (empty = no preference)
+```
+
+**Acceptance Criteria:**
+- Each task has a required `index` field
+- Tasks with same number but different letters are parallel siblings
+- Sequential dependencies: index N depends on all tasks at index N-1
+- `parallel: true` is no longer supported (backward compatible: ignored)
+- Transitive dependencies are computed automatically
+- Invalid index format raises `ValueError`
+
+### Feature 15: Phase Hierarchy
+**Description:** Projects can contain phases, and phases contain tasks. This
+gives a `Project / Phase / Task` hierarchy.
+
+**Config:**
+```yaml
+projects:
+  - name: "MyProject"
+    phases:
+      - name: "Phase 1"
+        tasks:
+          - index: 1
+            name: "Task A"
+            days: 3
+      - name: "Phase 2"
+        tasks:
+          - index: 1
+            name: "Task B"
+            days: 2
+            depends_on:
+              - "MyProject/Phase 1"     # depends on ALL tasks in Phase 1
+```
+
+**Task ID format:** `"Project/Phase/Task"` (with phases) or `"Project/Task"`.
+
+**Acceptance Criteria:**
+- Projects can have `phases` (list of phases, each with `name` and `tasks`)
+- Projects can still have flat `tasks` for backward compatibility
+- Phase-level dependency: `depends_on: ["Project/Phase"]` depends on every task
+  in that phase
+- Task IDs include the full `Project/Phase/Task` path
+- Phases are registered so they can be referenced by other tasks
+
+### Feature 16: Preferred Worker Allocation
+**Description:** Tasks may list preferred workers. The scheduler balances
+preferred worker allocation against schedule efficiency.
+
+**Config:**
+```yaml
+tasks:
+  - index: 1
+    name: "Design"
+    days: 3
+    preferred_workers: ["Alice", "Bob"]
+```
+
+**Algorithm:**
+When choosing which worker to assign a task to, the scheduler:
+1. Computes the earliest start for each worker (respecting deps + availability).
+2. Among workers that can start earliest, prefers one listed in
+   `preferred_workers`.
+3. Among preferred workers, picks the one that finishes earliest.
+4. If no preferred worker is tied for earliest start, falls back to the
+   overall earliest-finish worker.
+
+**Acceptance Criteria:**
+- Tasks with `preferred_workers` are assigned to a preferred worker when
+  possible without increasing the makespan
+- When all preferred workers are busy, falls back to earliest available
+- Empty or missing `preferred_workers` = no preference
 
 ## Directory Structure
 

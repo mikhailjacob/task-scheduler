@@ -54,14 +54,20 @@ class EditorService:
 
         out["projects"] = []
         for proj in data.get("projects", []):
-            p: dict = {"name": proj["name"], "tasks": []}
-            for t in proj.get("tasks", []):
-                task_entry: dict = {"name": t["name"], "days": t["days"]}
-                if t.get("parallel"):
-                    task_entry["parallel"] = True
-                if t.get("depends_on"):
-                    task_entry["depends_on"] = t["depends_on"]
-                p["tasks"].append(task_entry)
+            p: dict = {"name": proj["name"]}
+            if proj.get("phases"):
+                p["phases"] = []
+                for phase in proj["phases"]:
+                    ph: dict = {"name": phase["name"], "tasks": []}
+                    for t in phase.get("tasks", []):
+                        ph["tasks"].append(
+                            EditorService._task_entry(t)
+                        )
+                    p["phases"].append(ph)
+            else:
+                p["tasks"] = []
+                for t in proj.get("tasks", []):
+                    p["tasks"].append(EditorService._task_entry(t))
             out["projects"].append(p)
 
         return yaml.dump(out, default_flow_style=False, sort_keys=False)
@@ -85,3 +91,15 @@ class EditorService:
         """
         yaml_str = EditorService.json_to_yaml_string(data)
         return parse_config(yaml_str)
+
+    @staticmethod
+    def _task_entry(t: dict) -> dict:
+        """Build a single task dict for YAML output."""
+        entry: dict = {"name": t["name"], "days": t["days"]}
+        if t.get("index"):
+            entry["index"] = t["index"]
+        if t.get("depends_on"):
+            entry["depends_on"] = t["depends_on"]
+        if t.get("preferred_workers"):
+            entry["preferred_workers"] = t["preferred_workers"]
+        return entry

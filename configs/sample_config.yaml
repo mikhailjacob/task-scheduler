@@ -11,41 +11,68 @@ calendar:
 
 projects:
   - name: "Backend API"
-    tasks:
-      - name: "Setup database schema"
-        days: 3
-      - name: "Implement auth endpoints"
-        days: 5
-      - name: "Write API documentation"
-        parallel: true
-        days: 2
-      - name: "Setup CI/CD pipeline"
-        parallel: true
-        days: 2
+    phases:
+      - name: "Core"
+        tasks:
+          - name: "Setup database schema"
+            days: 3
+            index: 1
+            preferred_workers:
+              - Alice
+          - name: "Implement auth endpoints"
+            days: 5
+            index: 2
+            preferred_workers:
+              - Alice
+      - name: "DevOps"
+        tasks:
+          - name: "Write API documentation"
+            days: 2
+            index: 1
+            preferred_workers:
+              - Charlie
+          - name: "Setup CI/CD pipeline"
+            days: 2
+            index: 1
+            preferred_workers:
+              - Charlie
 
   - name: "Frontend"
     tasks:
       - name: "Design mockups"
         days: 2
+        index: 1
+        preferred_workers:
+          - Bob
       - name: "Implement dashboard"
         days: 4
+        index: 2A
         depends_on:
-          - "Backend API/Implement auth endpoints"
+          - "Backend API/Core/Implement auth endpoints"
+        preferred_workers:
+          - Bob
       - name: "Build login page"
-        parallel: true
-        depends_on:
-          - "Backend API/Implement auth endpoints"
         days: 3
+        index: 2B
+        depends_on:
+          - "Backend API/Core/Implement auth endpoints"
+        preferred_workers:
+          - Charlie
       - name: "Add responsive styles"
         days: 2
+        index: 3
 
   - name: "Data Pipeline"
     tasks:
       - name: "Design ETL architecture"
         days: 3
+        index: 1
       - name: "Implement data ingestion"
         days: 5
+        index: 2
       - name: "Build transformation layer"
         days: 4
+        index: 3
       - name: "Setup monitoring"
         days: 2
+        index: 4
