@@ -475,6 +475,52 @@ When choosing which worker to assign a task to, the scheduler:
 - When all preferred workers are busy, falls back to earliest available
 - Empty or missing `preferred_workers` = no preference
 
+### Feature 17: SVG Chart Export
+**Description:** Export the Gantt chart as a standalone SVG image that can be
+saved, shared, or embedded in other documents.
+
+**Route:**
+| Route           | Method | Description                        |
+|-----------------|--------|------------------------------------|
+| `/export/svg`   | POST   | Accept YAML config, return SVG file|
+
+**Implementation:**
+- New `backend/svg_export.py` module generates SVG via `xml.etree.ElementTree`.
+- The schedule page includes a hidden `<form>` with the raw YAML config.
+- Clicking "Export SVG" submits the form to `/export/svg`.
+- The backend re-parses and re-schedules the config, then generates an SVG
+  replicating the Gantt chart layout (legend, day headers, worker labels,
+  task blocks with project colors, current-tasks blocks).
+- SVG text content is XML-escaped automatically by ElementTree.
+
+**Acceptance Criteria:**
+- Schedule page has an "Export SVG" button
+- Button downloads an SVG file (`schedule.svg`)
+- SVG contains all task names, worker labels, and project legend
+- SVG uses the same project color assignment as the HTML chart
+- Invalid/missing config returns 400
+
+### Feature 18: Dark Mode
+**Description:** Add a toggleable dark colour scheme across all pages, with
+persistence via localStorage and automatic OS preference detection.
+
+**Implementation:**
+- CSS custom properties (`:root` variables) define all theme-able colours.
+- `[data-theme="dark"]` overrides redefine all variables for the dark palette.
+- An inline `<script>` in every template's `<head>` reads localStorage and
+  the `prefers-color-scheme` media query before first paint, preventing
+  any flash of incorrect theme.
+- `assets/js/theme.js` provides a `toggleTheme()` function.
+- A ☀/☾ toggle button appears on every page.
+
+**Acceptance Criteria:**
+- All pages have a theme toggle button
+- Clicking the toggle switches between light and dark themes
+- Theme choice persists across page navigations and reloads (localStorage)
+- If no choice is stored, OS dark mode preference is respected
+- All text, backgrounds, borders, and interactive elements adapt to theme
+- Task block colours (project palette) remain the same in both themes
+
 ## Directory Structure
 
 ```
@@ -484,6 +530,7 @@ Scheduler/
 │   ├── models.py              # Dataclasses: Task, Config, Schedule, etc.
 │   ├── parser.py              # ConfigParser — YAML parsing & validation
 │   ├── scheduler.py           # TaskScheduler — dependency-aware scheduling
+│   ├── svg_export.py          # SVG chart image generation
 │   ├── colors.py              # ColorAssigner — project color palette
 │   ├── calendar.py            # Calendar date computation
 │   ├── editor.py              # EditorService — JSON ↔ YAML conversion
@@ -499,7 +546,8 @@ Scheduler/
 │   │   ├── schedule.css       # Gantt chart styles
 │   │   └── editor.css         # Editor page styles
 │   └── js/                    # JavaScript
-│       └── editor.js          # Editor state management & rendering
+│       ├── editor.js          # Editor state management & rendering
+│       └── theme.js           # Dark mode toggle logic
 ├── tests/                     # pytest test suite
 │   ├── test_parser.py         # YAML parsing tests (F1, F8, F10)
 │   ├── test_scheduler.py      # Scheduling algorithm tests (F2, F9)
@@ -509,7 +557,12 @@ Scheduler/
 │   ├── test_dep_scheduler.py  # Dependency scheduling tests (F9)
 │   ├── test_dependencies.py   # Dependency parsing tests (F8)
 │   ├── test_workers.py        # Named worker tests (F10)
-│   └── test_editor.py         # Editor route tests (F12)
+│   ├── test_editor.py         # Editor route tests (F12)
+│   ├── test_indexing.py       # Task indexing tests (F14)
+│   ├── test_phases.py         # Phase hierarchy tests (F15)
+│   ├── test_preferred.py      # Preferred worker tests (F16)
+│   ├── test_svg_export.py     # SVG export tests (F17)
+│   └── test_dark_mode.py      # Dark mode tests (F18)
 ├── docs/                      # Documentation
 │   ├── DESIGN.md              # This document
 │   └── PROGRESS.md            # Feature progress tracking

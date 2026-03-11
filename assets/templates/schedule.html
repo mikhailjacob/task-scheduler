@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Schedule - Work Scheduler</title>
+    <script>(function(){var t=localStorage.getItem("theme");if(t){document.documentElement.setAttribute("data-theme",t)}else if(matchMedia("(prefers-color-scheme:dark)").matches){document.documentElement.setAttribute("data-theme","dark")}})();</script>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles/common.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles/schedule.css') }}">
 </head>
@@ -13,6 +14,11 @@
         <div class="header-links">
             <a href="/">&larr; Home</a>
             <a href="/editor">Editor</a>
+            <form action="/export/svg" method="post" class="export-form">
+                <input type="hidden" name="config_yaml" value="{{ config_yaml }}">
+                <button type="submit" class="btn-export">Export SVG</button>
+            </form>
+            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode"></button>
         </div>
     </div>
 
@@ -81,5 +87,6 @@
             {% endfor %}
         </div>
     </div>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>

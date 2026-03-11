@@ -31,8 +31,10 @@ This document tracks the implementation progress of each feature in the Work Sch
 | F14: Task Indexing & Transitive Deps | Complete | 16 | 16/16 |
 | F15: Phase Hierarchy | Complete | 12 | 12/12 |
 | F16: Preferred Worker Allocation | Complete | 8 | 8/8 |
+| F17: SVG Chart Export | Complete | 10 | 10/10 |
+| F18: Dark Mode | Complete | 9 | 9/9 |
 
-**Total: 115 tests, 115 passing**
+**Total: 134 tests, 134 passing**
 
 ---
 
@@ -780,4 +782,104 @@ This ensures preferred workers are favoured **only when they don't increase make
 ### Test Results
 ```
 tests/test_preferred.py — 8 passed
+```
+
+---
+
+## Feature 17: SVG Chart Export
+
+### RED Phase
+Tests written in `tests/test_svg_export.py` covering:
+
+**TestSVGExportRoute (9 tests):**
+1. `test_svg_export_returns_200` — POST to `/export/svg` with valid YAML returns 200.
+2. `test_svg_export_content_type` — Response Content-Type is `image/svg+xml`.
+3. `test_svg_export_attachment_header` — Content-Disposition header specifies `attachment; filename=schedule.svg`.
+4. `test_svg_export_contains_svg_tag` — Response body contains `<svg` root element.
+5. `test_svg_export_contains_tasks` — SVG output contains task names from the config.
+6. `test_svg_export_contains_worker_labels` — SVG output contains worker labels.
+7. `test_svg_export_contains_legend` — SVG output contains project name entries in a legend.
+8. `test_svg_export_no_config_returns_400` — POST with empty/missing `config_yaml` returns 400.
+9. `test_svg_export_invalid_yaml_returns_400` — POST with malformed YAML returns 400.
+
+**TestSchedulePageExportButton (1 test):**
+10. `test_schedule_page_has_export_button` — The rendered schedule page contains the export form action and "Export SVG" button text.
+
+All tests fail initially (no `/export/svg` route, no SVG generation module).
+
+### GREEN Phase
+
+**New module `backend/svg_export.py`:**
+- `generate_schedule_svg(config: Config) -> str` — generates a standalone SVG image of the Gantt chart.
+- Uses `xml.etree.ElementTree` (stdlib) for SVG construction — auto-escapes XML text.
+- Layout constants: `_LABEL_W=140` (worker label column), `_COL_W=50` (day column), `_ROW_H=40` (row height), `_HEADER_H=36` (day header height), `_LEGEND_H=30` (legend entry height), `_PAD=4` (inner padding on task blocks).
+- Renders: white background rect, project legend strip, day column headers (calendar dates or "Day N"), worker labels, availability-offset blocks, colored task blocks with clipped text labels.
+- Returns a complete SVG document string with XML declaration.
+
+**Route `POST /export/svg` in `routes.py`:**
+- Reads `config_yaml` from form data.
+- Returns 400 if missing or if YAML parsing / scheduling fails.
+- Calls `generate_schedule_svg()` and returns the result as `image/svg+xml` with an attachment disposition.
+
+**Template changes (`schedule.html`):**
+- Schedule page now receives `config_yaml` in template context (passed from both `upload()` and `editor_submit()` routes).
+- Hidden form with `action="/export/svg"` embeds the YAML in a hidden input and provides an "Export SVG" button in the header.
+
+**Public API (`__init__.py`):** Added `generate_schedule_svg` to imports and `__all__`.
+
+### Test Results
+```
+tests/test_svg_export.py — 10 passed
+```
+
+---
+
+## Feature 18: Dark Mode
+
+### RED Phase
+Tests written in `tests/test_dark_mode.py` covering:
+
+**TestDarkModeToggle (3 tests):**
+1. `test_index_has_theme_toggle` — Index page contains a `theme-toggle` button.
+2. `test_editor_has_theme_toggle` — Editor page contains a `theme-toggle` button.
+3. `test_schedule_has_theme_toggle` — Schedule page contains a `theme-toggle` button.
+
+**TestDarkModeCSS (3 tests):**
+4. `test_common_css_has_variables` — `common.css` defines CSS custom properties (`--bg`).
+5. `test_common_css_has_dark_override` — `common.css` contains `data-theme="dark"` selector.
+6. `test_theme_js_accessible` — `/theme.js` is served and contains `toggleTheme`.
+
+**TestDarkModeThemeInit (3 tests):**
+7. `test_index_has_theme_init` — Index page has inline `localStorage` script for flash-free theme loading.
+8. `test_editor_has_theme_init` — Editor page has inline `localStorage` script.
+9. `test_schedule_has_theme_init` — Schedule page has inline `localStorage` script.
+
+All tests fail initially (no theme toggle, no CSS variables, no `theme.js`).
+
+### GREEN Phase
+
+**CSS custom properties in `common.css`:**
+- `:root` block defines 28 CSS custom properties for colors (background, surface, text, border, primary, accent, etc.).
+- `[data-theme="dark"]` block overrides all properties with dark palette (backgrounds #121212–#2a2a2a, text #e0e0e0, etc.).
+- Added `.theme-toggle` button styles using CSS `::after` content — shows ☀ (U+2600) in light mode, ☾ (U+263E) in dark mode.
+
+**All CSS files rewritten:**
+- `schedule.css`, `index.css`, `editor.css` — replaced all hardcoded colors with `var(--xxx)` references.
+- Added dark-mode-compatible styles for inputs (`background: var(--surface)`, `color: var(--text)`).
+
+**New script `assets/js/theme.js`:**
+- `toggleTheme()` — reads `data-theme` attribute on `<html>`, toggles between "light" and "dark", persists choice to `localStorage`.
+
+**Inline theme init in all templates:**
+- `<script>` in `<head>` reads `localStorage.getItem("theme")` and falls back to `prefers-color-scheme: dark` media query.
+- Sets `data-theme` attribute on `<html>` before first paint — prevents flash of unstyled content (FOUC).
+
+**Theme toggle button added to all three pages:**
+- `schedule.html` — in the header alongside the Export SVG button.
+- `editor.html` — in the header-links area.
+- `index.html` — in a dedicated `.index-theme-toggle` div.
+
+### Test Results
+```
+tests/test_dark_mode.py — 9 passed
 ```

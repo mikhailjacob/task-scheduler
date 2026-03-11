@@ -2,7 +2,7 @@
 
 **Date:** March 10, 2026
 **Scope:** Full audit of design, code, frontend, tests, documentation, and security.
-**Revision:** 2 — updated after F14 (Task Indexing), F15 (Phase Hierarchy), F16 (Preferred Workers).
+**Revision:** 3 — updated after F17 (SVG Chart Export) and F18 (Dark Mode).
 
 ---
 
@@ -44,6 +44,7 @@ enabling testability and configuration flexibility.
 | `colors.py`   | Color assignment                | None     | Clean   |
 | `calendar.py` | Date computation                | models   | Clean   |
 | `editor.py`   | JSON → YAML conversion          | parser   | Clean   |
+| `svg_export.py`| SVG chart image generation     | models, scheduler, colors, calendar | Clean |
 | `routes.py`   | HTTP handlers (thin controller) | All      | Expected|
 
 Each module depends only downward on `models` and/or `parser`. The route
@@ -66,6 +67,8 @@ Schedule
 _build_schedule_context()  →  colors, calendar dates
     ↓
 Jinja2 template rendering  →  HTML response
+    or
+generate_schedule_svg()  →  SVG image response
 ```
 
 The pipeline is linear and easy to trace. Each stage has a clear input/output
@@ -155,8 +158,10 @@ contract defined by the dataclasses.
 - No vendor prefixes needed — the targeted features (CSS Grid, flexbox) have
   excellent browser support.
 
-### 3.3 JavaScript (`editor.js`) — PARTIAL PASS
+### 3.3 JavaScript (`editor.js`, `theme.js`) — PARTIAL PASS
 
+- `theme.js`: Small, self-contained module. Reads/writes `data-theme` attribute
+  and `localStorage` — no user input, no DOM injection, no security concerns.
 - Pure vanilla JS with no framework dependencies — appropriate for the project scope.
 - State management is simple and clear: `workers` and `projects` arrays.
 - XSS protection via the `esc()` function which uses `textContent` encoding —
@@ -199,7 +204,9 @@ format via backward compatibility.
 | `test_indexing.py`    | Task indexing (F14)   | 16    | Good    |
 | `test_phases.py`      | Phase hierarchy (F15) | 12    | Good    |
 | `test_preferred.py`   | Preferred workers (F16) | 8   | Good    |
-| **Total**             |                       | **115**| **All passing** |
+| `test_svg_export.py`  | SVG export (F17)       | 10   | Good    |
+| `test_dark_mode.py`   | Dark mode (F18)        | 9    | Good    |
+| **Total**             |                       | **134**| **All passing** |
 
 ### 4.2 Test Quality — GOOD
 
@@ -255,6 +262,9 @@ format via backward compatibility.
 - Error messages use `markupsafe.escape()` before interpolation into
   response strings (`f"Invalid configuration: {escape(str(exc))}"`) in
   both the `/upload` and `/editor/submit` routes.) — correct.
+- **SVG export (`svg_export.py`):** All text content is set via
+  `xml.etree.ElementTree` text properties, which auto-escape `<`, `>`, `&`,
+  and `"`. No raw string concatenation in SVG output — safe from injection.
 - **Inline style attributes** in `schedule.html` use `{{ color }}` and
   `{{ st.task.days }}` in `style=""` attributes. The `color` values come
   from `ColorAssigner` (hardcoded hex and computed HSL strings, never from
@@ -345,6 +355,7 @@ first) or accept the trade-off for download flexibility.
 | YAML file upload | Extension allowlist, 1 MB size limit, `safe_load`, full schema validation, circular dep detection |
 | Editor JSON (submit) | `get_json(silent=True)` + `projects` presence check + full `parse_config` validation via round-trip |
 | Editor JSON (download) | `get_json(silent=True)` + `projects` presence check only — no schema validation |
+| SVG export YAML (form) | `config_yaml` from hidden form field — parsed through `parse_config` + `schedule`, invalid input returns 400 |
 | File name | `os.path.splitext` + allowlist check; name is never used for file I/O |
 | Task index format | Regex validation (`^(\d+)([A-Za-z]?)$`) |
 | Dependency references | Validated against known task IDs and phase IDs |
@@ -358,7 +369,7 @@ first) or accept the trade-off for download flexibility.
 | Worker count upper bound (W2) | Low | Add `workers <= 1000` check in parser |
 | Task count upper bound (W3) | Low | Add task count limit or document expected input bounds |
 | CSRF protection | Low | The app has no authentication so CSRF risk is minimal. If auth were added, Flask-WTF's CSRF tokens should be used for all POST forms. |
-| Content-Security-Policy | Low | Adding a CSP header would harden against inline script injection. Currently not needed since there are no inline scripts (editor.js is external). The `style` attributes on task blocks use Jinja2 auto-escaping. |
+| Content-Security-Policy | Low | Adding a CSP header would harden against inline script injection. The inline `<script>` for theme initialization reads only `localStorage` and `matchMedia` — no user input. A CSP with `'unsafe-inline'` or a nonce would be needed to preserve this functionality. |
 | Rate limiting | Low | No rate limiting on upload or editor submit endpoints. Not needed for local use; add Flask-Limiter if deploying to a network. |
 | Validate download before serving (M1) | Low | Run `json_to_config` in `/editor/download` to catch invalid configs early |
 
@@ -414,7 +425,9 @@ first) or accept the trade-off for download flexibility.
 | `editor.py` | Yes | Yes | Yes (all 3 methods) | Good |
 | `routes.py` | Yes | — | Yes (all 5) | Good |
 | `run.py` | Yes | — | — | Good |
+| `svg_export.py` | Yes | — | Yes | Good |
 | `editor.js` | Yes | — | Yes (all) | Good |
+| `theme.js` | — | — | Yes | Good |
 
 ### 7.2 Project Documentation — GOOD
 
@@ -482,7 +495,7 @@ None.
 ### Strengths
 
 - Clean separation of concerns with single-purpose modules.
-- Thorough TDD approach with 115 tests covering all 16 features.
+- Thorough TDD approach with 134 tests covering all 18 features.
 - Secure input handling: `safe_load`, Jinja2 auto-escaping, `markupsafe.escape()`,
   `esc()` DOM encoding, in-memory file processing.
 - Minimal dependency footprint with mature, well-maintained libraries.

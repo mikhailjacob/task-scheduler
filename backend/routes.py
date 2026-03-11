@@ -7,6 +7,7 @@ Defines a Flask Blueprint (``main_bp``) with routes for:
 - ``GET /editor``          -- Graphical config editor page
 - ``POST /editor/submit``  -- Editor JSON to schedule rendering
 - ``POST /editor/download``-- Editor JSON to YAML file download
+- ``POST /export/svg``     -- Schedule export as SVG image
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from .editor import EditorService
 from .models import CalendarSettings, Config
 from .parser import parse_config
 from .scheduler import schedule_tasks
+from .svg_export import generate_schedule_svg
 
 ALLOWED_EXTENSIONS = {".yaml", ".yml"}
 """File extensions accepted by the upload endpoint."""
@@ -91,12 +93,14 @@ def upload():
         return "Only .yaml / .yml files are accepted", 400
 
     raw = file.read()
+    config_yaml = raw.decode("utf-8")
     try:
-        config = parse_config(raw.decode("utf-8"))
+        config = parse_config(config_yaml)
     except (ValueError, yaml.YAMLError) as exc:
         return f"Invalid configuration: {escape(str(exc))}", 400
 
     ctx = _build_schedule_context(config)
+    ctx["config_yaml"] = config_yaml
     return render_template("schedule.html", **ctx)
 
 
@@ -125,6 +129,7 @@ def editor_submit():
     except (ValueError, yaml.YAMLError) as exc:
         return f"Invalid configuration: {escape(str(exc))}", 400
     ctx = _build_schedule_context(config)
+    ctx["config_yaml"] = EditorService.json_to_yaml_string(data)
     return render_template("schedule.html", **ctx)
 
 
@@ -152,5 +157,34 @@ def editor_download():
         mimetype="text/yaml",
         headers={
             "Content-Disposition": "attachment; filename=config.yaml"
+        },
+    )
+
+
+@main_bp.route("/export/svg", methods=["POST"])
+def export_svg():
+    """Export the schedule as a downloadable SVG image.
+
+    Accepts a ``config_yaml`` form field containing the raw YAML
+    configuration.  Parses it, schedules tasks, generates an SVG
+    image of the Gantt chart, and returns it as a file download.
+
+    Returns:
+        SVG file response with attachment header on success, or
+        (error message, 400) on invalid/missing configuration.
+    """
+    raw = request.form.get("config_yaml", "")
+    if not raw:
+        return "No configuration provided", 400
+    try:
+        config = parse_config(raw)
+    except (ValueError, yaml.YAMLError) as exc:
+        return f"Invalid configuration: {escape(str(exc))}", 400
+    svg_str = generate_schedule_svg(config)
+    return Response(
+        svg_str,
+        mimetype="image/svg+xml",
+        headers={
+            "Content-Disposition": "attachment; filename=schedule.svg"
         },
     )

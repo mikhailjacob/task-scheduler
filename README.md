@@ -6,7 +6,7 @@ configuration file or build one visually in the graphical editor.
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Flask 3.0+](https://img.shields.io/badge/flask-3.0%2B-green)
-![Tests 79 passing](https://img.shields.io/badge/tests-79%20passing-brightgreen)
+![Tests 134 passing](https://img.shields.io/badge/tests-134%20passing-brightgreen)
 
 ---
 
@@ -30,6 +30,10 @@ configuration file or build one visually in the graphical editor.
   optional weekday-only mode (skip weekends).
 - **YAML download** — export the editor's configuration as a downloadable
   `.yaml` file.
+- **SVG chart export** — download the generated Gantt chart as a standalone
+  SVG image file.
+- **Dark mode** — toggle between light and dark color schemes; persists via
+  `localStorage` and respects the system `prefers-color-scheme` preference.
 - **Dual-path landing page** — users can upload an existing config file or
   jump straight to the editor.
 
@@ -78,7 +82,7 @@ The server starts at **http://localhost:5000**.  Open it in a browser to:
 python -m pytest tests/ -v
 ```
 
-All 79 tests should pass.
+All 134 tests should pass.
 
 ---
 
@@ -155,6 +159,7 @@ Scheduler/
 │   ├── colors.py              # Project color palette assignment
 │   ├── calendar.py            # Calendar date computation with weekend handling
 │   ├── editor.py              # JSON ↔ YAML conversion for the graphical editor
+│   ├── svg_export.py          # SVG Gantt chart image generation
 │   └── routes.py              # Flask Blueprint with all HTTP route handlers
 ├── assets/                    # Frontend assets (served as Flask static files)
 │   ├── templates/             # Jinja2 HTML templates
@@ -167,8 +172,9 @@ Scheduler/
 │   │   ├── schedule.css       # Gantt chart, tooltips, legend styles
 │   │   └── editor.css         # Editor form, panel, and button styles
 │   └── js/
-│       └── editor.js          # Editor state management, rendering, submissions
-├── tests/                     # pytest test suite (79 tests)
+│       ├── editor.js          # Editor state management, rendering, submissions
+│       └── theme.js           # Dark mode toggle and persistence
+├── tests/                     # pytest test suite (134 tests)
 │   ├── test_parser.py         # YAML parsing tests
 │   ├── test_scheduler.py      # Scheduling algorithm tests
 │   ├── test_colors.py         # Color assignment tests
@@ -177,7 +183,12 @@ Scheduler/
 │   ├── test_dep_scheduler.py  # Dependency-aware scheduling tests
 │   ├── test_dependencies.py   # Dependency parsing tests
 │   ├── test_workers.py        # Named worker parsing tests
-│   └── test_editor.py         # Editor route tests
+│   ├── test_editor.py         # Editor route tests
+│   ├── test_indexing.py       # Task indexing tests
+│   ├── test_phases.py         # Phase hierarchy tests
+│   ├── test_preferred.py      # Preferred worker tests
+│   ├── test_svg_export.py     # SVG chart export tests
+│   └── test_dark_mode.py      # Dark mode tests
 ├── docs/                      # Documentation
 │   ├── DESIGN.md              # Architecture, features, and design decisions
 │   ├── PROGRESS.md            # Feature-by-feature TDD progress log
@@ -196,6 +207,7 @@ Scheduler/
 |--------------------|--------|--------------------------------------------------|
 | `/`                | GET    | Landing page — upload a config or open the editor |
 | `/upload`          | POST   | Accept a YAML file, parse, schedule, render chart |
+| `/export/svg`      | POST   | Export the Gantt chart as an SVG image file       |
 | `/editor`          | GET    | Graphical configuration editor                    |
 | `/editor/submit`   | POST   | Accept editor JSON, schedule, render chart        |
 | `/editor/download` | POST   | Accept editor JSON, return YAML file download     |
@@ -216,7 +228,7 @@ Scheduler/
 
 - **Persistent storage** — save and load schedules from a database or
   local file system so users can revisit past schedules.
-- **Export options** — export the Gantt chart as a PNG, SVG, or PDF image.
+- **PDF export** — export the Gantt chart as a PDF document.
 - **Drag-and-drop editor** — allow repositioning tasks directly on the
   Gantt chart with drag-and-drop.
 - **Multi-user collaboration** — real-time editing with WebSockets so
@@ -231,7 +243,6 @@ Scheduler/
   Trello, or CSV files.
 - **Critical path highlighting** — visually highlight the critical path
   through the dependency graph on the Gantt chart.
-- **Dark mode** — add a dark color scheme toggle.
 
 ---
 

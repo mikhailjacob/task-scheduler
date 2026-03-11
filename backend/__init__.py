@@ -35,6 +35,7 @@ from .models import (
 from .parser import ConfigParser, parse_config
 from .routes import main_bp
 from .scheduler import TaskScheduler, schedule_tasks
+from .svg_export import generate_schedule_svg
 
 _MAX_FILE_SIZE = 1 * 1024 * 1024  # 1 MB
 
@@ -69,6 +70,7 @@ __all__ = [
     "Config",
     "ConfigParser",
     "EditorService",
+    "generate_schedule_svg",
     "Schedule",
     "ScheduledTask",
     "Task",
